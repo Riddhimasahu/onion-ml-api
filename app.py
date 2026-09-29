@@ -107,6 +107,9 @@ def point_inside_mask(x, y, mask):
 
 
 def local_market_size(diameter_mm):
+    if diameter_mm is None:
+        return "Not measured"
+
     if diameter_mm > 60:
         return "Extra Large"
 
@@ -118,7 +121,6 @@ def local_market_size(diameter_mm):
 
     else:
         return "Below 20 mm"
-
 
 def determine_condition(record):
     defects = []
@@ -191,13 +193,17 @@ def apply_rules(records, standard_id):
     for record in records:
         diameter = record["diameter_mm"]
 
-        if "minimum_diameter_mm" in standard:
-            if diameter < standard["minimum_diameter_mm"]:
-                size_status = "Below minimum"
-            else:
-                size_status = "Meets minimum size"
-        else:
-            size_status = record["size_category"]
+        if diameter is None:
+    size_status = "Size not measured"
+
+elif "minimum_diameter_mm" in standard:
+    if diameter < standard["minimum_diameter_mm"]:
+        size_status = "Below minimum"
+    else:
+        size_status = "Meets minimum size"
+
+else:
+    size_status = record["size_category"]
 
         results.append({
             "onion_id": record["onion_id"],
@@ -279,17 +285,22 @@ def generate_report(records, standard_id):
 """
 
     for onion in graded:
-        report += f"""
+
+    diameter_text = (
+        f'{onion["diameter_mm"]} mm'
+        if onion["diameter_mm"] is not None
+        else "Not measured"
+    )
+
+    report += f"""
 
 ### Onion {onion["onion_id"]}
 
-- Diameter: **{onion["diameter_mm"]} mm**
+- Diameter: **{diameter_text}**
 - Size result: **{onion["size_status"]}**
 - Condition: **{onion["condition"]}**
 - Defects: **{", ".join(onion["defects"]) if onion["defects"] else "None detected"}**
 """
-
-    report += f"""
 
 ## Verification
 
@@ -351,18 +362,13 @@ def process_image(
         return None, None, "No onions detected by YOLO."
 
     # 2. ARUCO CALIBRATION
-    marker_pixels = detect_reference_marker(image)
+   # 2. ARUCO CALIBRATION
+marker_pixels = detect_reference_marker(image)
 
-    if marker_pixels is None:
-        return None, None, (
-            "Reference marker not detected. "
-            "Place the 50 mm ArUco reference marker "
-            "with marker ID 23 in the image."
-        )
-
-    mm_per_pixel = (
-        REFERENCE_SIZE_MM / marker_pixels
-    )
+if marker_pixels is not None:
+    mm_per_pixel = REFERENCE_SIZE_MM / marker_pixels
+else:
+    mm_per_pixel = None
 
     # 3. SAM2 SEGMENTATION
     sam_results = sam(
@@ -393,21 +399,29 @@ def process_image(
         if measurement is None:
             continue
 
-        diameter_mm = (
-            measurement["diameter_pixels"]
-            * mm_per_pixel
-        )
+        if mm_per_pixel is not None:
+    diameter_mm = (
+        measurement["diameter_pixels"]
+        * mm_per_pixel
+    )
 
-        records.append({
-            "onion_id": len(records) + 1,
-            "diameter_mm": round(diameter_mm, 2),
-            "size_category": local_market_size(
-                diameter_mm
-            ),
-            "rotten": False,
-            "sprout": False,
-            "double_split": False
-        })
+    diameter_mm = round(diameter_mm, 2)
+
+    size_category = local_market_size(
+        diameter_mm
+    )
+else:
+    diameter_mm = None
+    size_category = "Not measured"
+
+records.append({
+    "onion_id": len(records) + 1,
+    "diameter_mm": diameter_mm,
+    "size_category": size_category,
+    "rotten": False,
+    "sprout": False,
+    "double_split": False
+})
 
     if len(records) == 0:
         return None, None, (
@@ -448,20 +462,22 @@ def process_image(
                 cy,
                 mask
             ):
-                if class_name == "rotten":
-                    records[
-                        valid_mask_index
-                    ]["rotten"] = True
+                class_name_lower = class_name.lower().strip()
 
-                elif class_name == "sprout":
-                    records[
-                        valid_mask_index
-                    ]["sprout"] = True
+if class_name_lower in ["rotten", "spoiled"]:
+    records[
+        valid_mask_index
+    ]["rotten"] = True
 
-                elif class_name == "double_split":
-                    records[
-                        valid_mask_index
-                    ]["double_split"] = True
+elif class_name_lower in ["sprout", "sprouted"]:
+    records[
+        valid_mask_index
+    ]["sprout"] = True
+
+elif class_name_lower in ["double_split", "double split"]:
+    records[
+        valid_mask_index
+    ]["double_split"] = True
 
         valid_mask_index += 1
 
