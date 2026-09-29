@@ -363,13 +363,13 @@ def process_image(
 
     # 2. ARUCO CALIBRATION
    # 2. ARUCO CALIBRATION
+# 2. ARUCO CALIBRATION
 marker_pixels = detect_reference_marker(image)
 
 if marker_pixels is not None:
     mm_per_pixel = REFERENCE_SIZE_MM / marker_pixels
 else:
     mm_per_pixel = None
-
     # 3. SAM2 SEGMENTATION
     sam_results = sam(
         image_path,
